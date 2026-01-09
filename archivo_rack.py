@@ -2,20 +2,18 @@ import streamlit as st
 import pandas as pd
 import math
 
-# ---------------- CONFIGURACIÓN ----------------
-CAPACIDAD_CAJA = 300   # 🔑 300 comprobantes por caja
+# ---------------- CONFIGURACIÓN FÍSICA REAL ----------------
+CAPACIDAD_CAJA = 300
+CAJAS_POR_NIVEL = 2
+NIVELES_POR_RACK = 5
+CAJAS_POR_RACK = CAJAS_POR_NIVEL * NIVELES_POR_RACK
+COMPS_POR_RACK = CAJAS_POR_RACK * CAPACIDAD_CAJA
 RACK = "A"
 
-st.set_page_config(
-    page_title="AppArchivo",
-    layout="wide"
-)
-
-st.title("📦 AppArchivo – Sistema de Archivo")
-st.info(
-    "Nivel 01 = cajas más completas (más pesadas, más viejas). "
-    "Los niveles superiores contienen cajas más nuevas y livianas."
-)
+# ---------------- STREAMLIT ----------------
+st.set_page_config(page_title="AppArchivo", layout="wide")
+st.title("📦 AppArchivo – Archivo físico inteligente")
+st.caption("Nivel 01 abajo (más pesado) · Proyección y alertas automáticas")
 
 # ---------------- CARGA DE DATOS ----------------
 def cargar_excel(archivo):
@@ -25,20 +23,14 @@ def cargar_excel(archivo):
     return df
 
 def organizar(df):
-    # Filtrar tipos válidos
     df = df[df["tipo"].isin(["PX", "PU", "PH"])]
-
-    # 🔑 ORDEN CLAVE:
-    # número ASCENDENTE → más viejo primero
     df = df.sort_values(by=["tipo", "numero"], ascending=[True, True])
 
     cajas = []
     racks = []
-
     contador = {}
     caja_actual = {}
 
-    # -------- ASIGNACIÓN DE CAJAS POR ANTIGÜEDAD --------
     for _, row in df.iterrows():
         tipo = row["tipo"]
 
@@ -58,36 +50,12 @@ def organizar(df):
     df["caja"] = cajas
     df["rack"] = racks
 
-    # -------- CÁLCULO DE PESO POR CAJA --------
-    ocupacion = (
-        df.groupby("caja")
-        .size()
-        .reset_index(name="cantidad")
-    )
+    ocupacion = df.groupby("caja").size().reset_index(name="cantidad")
+    ocupacion = ocupacion.sort_values("cantidad", ascending=False).reset_index(drop=True)
+    ocupacion["nivel"] = ocupacion.index + 1
 
-    # 🔑 ORDEN FÍSICO DEL RACK:
-    # más completos (más pesados) → abajo
-    ocupacion = ocupacion.sort_values(
-        by="cantidad",
-        ascending=False
-    ).reset_index(drop=True)
-
-    ocupacion["nivel"] = ocupacion.index + 1  # Nivel 01 = más pesado
-
-    # Unir niveles al dataframe principal
-    df = df.merge(
-        ocupacion[["caja", "nivel"]],
-        on="caja",
-        how="left"
-    )
-
-    return df
-
-def construir_rack(df):
-    rack = {}
-    for _, r in df.iterrows():
-        rack.setdefault(r["nivel"], set()).add(r["caja"])
-    return rack
+    df = df.merge(ocupacion[["caja", "nivel"]], on="caja", how="left")
+    return df, ocupacion
 
 # ---------------- INTERFAZ ----------------
 archivo = st.file_uploader(
@@ -99,37 +67,78 @@ if archivo is None:
     st.stop()
 
 df = cargar_excel(archivo)
-df = organizar(df)
-rack = construir_rack(df)
+df, ocupacion = organizar(df)
 
-st.subheader("🧱 Vista del Rack (Nivel 01 abajo – más pesado)")
+# ---------------- INDICADORES CLAVE ----------------
+st.subheader("📊 Estado del archivo")
 
-for nivel in sorted(rack.keys()):
-    cols = st.columns(len(rack[nivel]))
-    for i, caja in enumerate(sorted(rack[nivel])):
+total_comprobantes = len(df)
+cajas_usadas = df["caja"].nunique()
+racks_usados = math.ceil(cajas_usadas / CAJAS_POR_RACK)
+porcentaje_rack = int((cajas_usadas / CAJAS_POR_RACK) * 100)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("📦 Comprobantes totales", total_comprobantes)
+c2.metric("🧱 Cajas usadas", cajas_usadas)
+c3.metric("🏗️ Racks ocupados", racks_usados)
+
+st.progress(min(porcentaje_rack / 100, 1.0))
+
+# ---------------- ALERTAS ----------------
+if porcentaje_rack >= 90:
+    st.error("🚨 Rack casi lleno – Planificar nuevo rack URGENTE")
+elif porcentaje_rack >= 70:
+    st.warning("⚠️ Rack al 70% – Evaluar crecimiento")
+else:
+    st.success("✅ Capacidad de rack en nivel seguro")
+
+# ---------------- PROYECCIÓN ----------------
+st.subheader("📈 Proyección anual")
+
+promedio_mensual = st.number_input(
+    "Promedio mensual de comprobantes",
+    min_value=1,
+    value=300,
+    step=50
+)
+
+proy_anual = promedio_mensual * 12
+racks_anuales = math.ceil(proy_anual / COMPS_POR_RACK)
+
+st.info(
+    f"""
+    📅 Proyección anual: **{proy_anual} comprobantes**  
+    🏗️ Racks necesarios en 12 meses: **{racks_anuales}**
+    """
+)
+
+# ---------------- VISTA DEL RACK ----------------
+st.subheader("🧱 Vista del rack (Nivel 01 abajo)")
+
+rack_vista = {}
+for _, r in ocupacion.iterrows():
+    rack_vista.setdefault(r["nivel"], []).append(r)
+
+for nivel in sorted(rack_vista.keys()):
+    cols = st.columns(CAJAS_POR_NIVEL)
+    for i, r in enumerate(rack_vista[nivel][:CAJAS_POR_NIVEL]):
         with cols[i]:
-            tipo = caja[:2]
-            color = {
-                "PX": "#AED6F1",
-                "PU": "#ABEBC6",
-                "PH": "#FAD7A0"
-            }[tipo]
-
-            ocupacion = len(df[df["caja"] == caja])
-            porcentaje = int((ocupacion / CAPACIDAD_CAJA) * 100)
+            tipo = r["caja"][:2]
+            color = {"PX": "#AED6F1", "PU": "#ABEBC6", "PH": "#FAD7A0"}[tipo]
+            porcentaje = int((r["cantidad"] / CAPACIDAD_CAJA) * 100)
 
             st.markdown(
                 f"""
                 <div style="
                     background-color:{color};
-                    padding:10px;
+                    padding:12px;
                     border-radius:8px;
                     text-align:center;
                     border:1px solid #555;
                 ">
-                <b>{caja}</b><br>
+                <b>{r['caja']}</b><br>
                 Nivel {nivel}<br>
-                {ocupacion} comprobantes<br>
+                {r['cantidad']} comps<br>
                 {porcentaje}%
                 </div>
                 """,
@@ -138,6 +147,7 @@ for nivel in sorted(rack.keys()):
 
 # ---------------- BÚSQUEDA ----------------
 st.subheader("🔍 Buscar comprobante")
+
 buscar = st.text_input("Ingresá número de comprobante")
 
 if buscar:
@@ -146,7 +156,7 @@ if buscar:
         r = res.iloc[0]
         st.success(
             f"📍 {r['tipo']} {r['numero']} → "
-            f"Rack {r['rack']} / Nivel {r['nivel']} / Caja {r['caja']}"
+            f"Rack {r['rack']} · Nivel {r['nivel']} · Caja {r['caja']}"
         )
     else:
         st.error("Comprobante no encontrado")
