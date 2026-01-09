@@ -22,8 +22,9 @@ def cargar_excel(archivo):
     return df
 
 def organizar(df):
-    df = df[df["tipo"].isin(["PX", "PU", "PH"])]
-    df = df.sort_values(by=["tipo", "numero"], ascending=[True, False])
+df = df[df["tipo"].isin(["PX", "PU", "PH"])]
+df = df.sort_values(by=["tipo", "numero"], ascending=False)
+
 
     cajas = []
     racks = []
@@ -128,4 +129,5 @@ if buscar:
         )
     else:
         st.error("Comprobante no encontrado")
+
 
