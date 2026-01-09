@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("📦 AppArchivo – Sistema de Archivo")
-st.info("Subí un Excel para comenzar")
+st.info("Los comprobantes más viejos se ubican en los niveles más bajos (Nivel 01)")
 
 # ---------------- CARGA DE DATOS ----------------
 def cargar_excel(archivo):
@@ -22,11 +22,15 @@ def cargar_excel(archivo):
     return df
 
 def organizar(df):
-df = df[df["tipo"].isin(["PX", "PU", "PH"])]
-df = df.sort_values(by=["tipo", "numero"], ascending=False)
+    # Filtrar tipos válidos
+    df = df[df["tipo"].isin(["PX", "PU", "PH"])]
 
+    # 🔑 ORDEN CLAVE:
+    # número ASCENDENTE → más viejo primero
+    df = df.sort_values(by=["tipo", "numero"], ascending=[True, True])
 
     cajas = []
+    niveles = []
     racks = []
 
     contador = {}
@@ -46,21 +50,12 @@ df = df.sort_values(by=["tipo", "numero"], ascending=False)
             contador[tipo] = 1
 
         cajas.append(f"{tipo}-{caja_actual[tipo]:02d}")
+        niveles.append(caja_actual[tipo])   # 🔑 Nivel = caja (viejo abajo)
         racks.append(RACK)
 
     df["caja"] = cajas
+    df["nivel"] = niveles
     df["rack"] = racks
-
-    ocupacion = (
-        df.groupby("caja")
-        .size()
-        .reset_index(name="cantidad")
-        .sort_values("cantidad", ascending=False)
-        .reset_index(drop=True)
-    )
-
-    ocupacion["nivel"] = ocupacion.index + 1
-    df = df.merge(ocupacion[["caja", "nivel"]], on="caja", how="left")
 
     return df
 
@@ -72,7 +67,7 @@ def construir_rack(df):
 
 # ---------------- INTERFAZ ----------------
 archivo = st.file_uploader(
-    "Subí tu Excel",
+    "Subí tu Excel (Col A: número | Col B: tipo PX/PU/PH)",
     type=["xlsx", "xlsm"]
 )
 
@@ -83,9 +78,9 @@ df = cargar_excel(archivo)
 df = organizar(df)
 rack = construir_rack(df)
 
-st.subheader("🧱 Vista del Rack (nivel por nivel)")
+st.subheader("🧱 Vista del Rack (Nivel 01 = más viejo)")
 
-for nivel in sorted(rack.keys(), reverse=True):
+for nivel in sorted(rack.keys()):
     cols = st.columns(len(rack[nivel]))
     for i, caja in enumerate(sorted(rack[nivel])):
         with cols[i]:
@@ -110,13 +105,14 @@ for nivel in sorted(rack.keys(), reverse=True):
                 ">
                 <b>{caja}</b><br>
                 Nivel {nivel}<br>
-                {ocupacion} comps<br>
+                {ocupacion} comprobantes<br>
                 {porcentaje}%
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
+# ---------------- BÚSQUEDA ----------------
 st.subheader("🔍 Buscar comprobante")
 buscar = st.text_input("Ingresá número de comprobante")
 
@@ -129,5 +125,3 @@ if buscar:
         )
     else:
         st.error("Comprobante no encontrado")
-
-
