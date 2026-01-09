@@ -3,7 +3,7 @@ import pandas as pd
 import math
 
 # ---------------- CONFIGURACIÓN ----------------
-CAPACIDAD_CAJA = 300
+CAPACIDAD_CAJA = 300   # 🔑 300 comprobantes por caja
 RACK = "A"
 
 st.set_page_config(
@@ -12,7 +12,10 @@ st.set_page_config(
 )
 
 st.title("📦 AppArchivo – Sistema de Archivo")
-st.info("Los comprobantes más viejos se ubican en los niveles más bajos (Nivel 01)")
+st.info(
+    "Nivel 01 = cajas más completas (más pesadas, más viejas). "
+    "Los niveles superiores contienen cajas más nuevas y livianas."
+)
 
 # ---------------- CARGA DE DATOS ----------------
 def cargar_excel(archivo):
@@ -30,12 +33,12 @@ def organizar(df):
     df = df.sort_values(by=["tipo", "numero"], ascending=[True, True])
 
     cajas = []
-    niveles = []
     racks = []
 
     contador = {}
     caja_actual = {}
 
+    # -------- ASIGNACIÓN DE CAJAS POR ANTIGÜEDAD --------
     for _, row in df.iterrows():
         tipo = row["tipo"]
 
@@ -50,12 +53,33 @@ def organizar(df):
             contador[tipo] = 1
 
         cajas.append(f"{tipo}-{caja_actual[tipo]:02d}")
-        niveles.append(caja_actual[tipo])   # 🔑 Nivel = caja (viejo abajo)
         racks.append(RACK)
 
     df["caja"] = cajas
-    df["nivel"] = niveles
     df["rack"] = racks
+
+    # -------- CÁLCULO DE PESO POR CAJA --------
+    ocupacion = (
+        df.groupby("caja")
+        .size()
+        .reset_index(name="cantidad")
+    )
+
+    # 🔑 ORDEN FÍSICO DEL RACK:
+    # más completos (más pesados) → abajo
+    ocupacion = ocupacion.sort_values(
+        by="cantidad",
+        ascending=False
+    ).reset_index(drop=True)
+
+    ocupacion["nivel"] = ocupacion.index + 1  # Nivel 01 = más pesado
+
+    # Unir niveles al dataframe principal
+    df = df.merge(
+        ocupacion[["caja", "nivel"]],
+        on="caja",
+        how="left"
+    )
 
     return df
 
@@ -67,7 +91,7 @@ def construir_rack(df):
 
 # ---------------- INTERFAZ ----------------
 archivo = st.file_uploader(
-    "Subí tu Excel (Col A: número | Col B: tipo PX/PU/PH)",
+    "Subí tu Excel (Col A: número | Col B: tipo PX / PU / PH)",
     type=["xlsx", "xlsm"]
 )
 
@@ -78,7 +102,7 @@ df = cargar_excel(archivo)
 df = organizar(df)
 rack = construir_rack(df)
 
-st.subheader("🧱 Vista del Rack (Nivel 01 = más viejo)")
+st.subheader("🧱 Vista del Rack (Nivel 01 abajo – más pesado)")
 
 for nivel in sorted(rack.keys()):
     cols = st.columns(len(rack[nivel]))
@@ -121,7 +145,8 @@ if buscar:
     if not res.empty:
         r = res.iloc[0]
         st.success(
-            f"📍 {r['tipo']} {r['numero']} → Rack {r['rack']} / Nivel {r['nivel']} / Caja {r['caja']}"
+            f"📍 {r['tipo']} {r['numero']} → "
+            f"Rack {r['rack']} / Nivel {r['nivel']} / Caja {r['caja']}"
         )
     else:
         st.error("Comprobante no encontrado")
