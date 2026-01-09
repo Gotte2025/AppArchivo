@@ -3,7 +3,7 @@ import pandas as pd
 import math
 
 # ---------------- CONFIGURACIÓN ----------------
-CAPACIDAD_CAJA = 2500
+CAPACIDAD_CAJA = 300
 RACK = "A"
 
 st.set_page_config(
@@ -128,3 +128,4 @@ if buscar:
         )
     else:
         st.error("Comprobante no encontrado")
+
