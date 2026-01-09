@@ -160,3 +160,65 @@ if buscar:
         )
     else:
         st.error("Comprobante no encontrado")
+
+# ---------------- BÚSQUEDA MÚLTIPLE ----------------
+st.subheader("🧾 Buscar lista de comprobantes (optimizado)")
+
+st.caption(
+    "Pegá una lista de números (uno por línea o separados por coma). "
+    "El sistema agrupa para minimizar recorridos físicos."
+)
+
+lista_texto = st.text_area(
+    "Lista de comprobantes",
+    height=150,
+    placeholder="10234\n10235\n20456\n30567"
+)
+
+if lista_texto:
+    # Normalizar lista
+    lista = (
+        lista_texto
+        .replace(",", "\n")
+        .splitlines()
+    )
+    lista = [x.strip() for x in lista if x.strip()]
+
+    # Buscar
+    encontrados = df[df["numero"].astype(str).isin(lista)].copy()
+    encontrados["numero"] = encontrados["numero"].astype(str)
+
+    if encontrados.empty:
+        st.error("No se encontraron comprobantes de la lista")
+    else:
+        # Orden óptimo de recorrido
+        encontrados = encontrados.sort_values(
+            by=["rack", "nivel", "caja"]
+        )
+
+        st.success(f"✅ Encontrados {len(encontrados)} comprobantes")
+
+        # Mostrar tabla
+        st.dataframe(
+            encontrados[
+                ["tipo", "numero", "rack", "nivel", "caja"]
+            ],
+            use_container_width=True
+        )
+
+        # ---------------- RESUMEN FÍSICO ----------------
+        st.subheader("🧱 Resumen para búsqueda física")
+
+        resumen = (
+            encontrados
+            .groupby(["rack", "nivel", "caja"])
+            .size()
+            .reset_index(name="cantidad")
+            .sort_values(["rack", "nivel"])
+        )
+
+        for _, r in resumen.iterrows():
+            st.write(
+                f"📍 Rack {r['rack']} · Nivel {r['nivel']} · "
+                f"Caja {r['caja']} → {r['cantidad']} comprobantes"
+            )
