@@ -3,7 +3,7 @@ import pandas as pd
 import math
 
 # ================= CONFIGURACIÓN FÍSICA =================
-CAPACIDAD_CAJA = 300
+CAPACIDAD_CAJA = 50
 CAJAS_POR_NIVEL = 2
 NIVELES_POR_RACK = 5
 CAJAS_POR_RACK = CAJAS_POR_NIVEL * NIVELES_POR_RACK
@@ -167,3 +167,4 @@ if lista_txt:
                 f"📍 {r['rack']} · Nivel {r['nivel']} · "
                 f"{r['caja']} → {r['cantidad']} comprobantes"
             )
+
