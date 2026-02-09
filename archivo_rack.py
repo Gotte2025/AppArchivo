@@ -2,170 +2,124 @@ import streamlit as st
 import pandas as pd
 import math
 
-# ================= CONFIGURACIÓN FÍSICA =================
-CAPACIDAD_CAJA = 300
-CAJAS_POR_NIVEL = 2
+st.title("📦 Layout de Archivo por Rack")
+
+# ================= CONFIGURACIÓN =================
+
+COMPROBANTES_POR_CAJA = 300
+POSICIONES_POR_NIVEL = 10
 NIVELES_POR_RACK = 5
-CAJAS_POR_RACK = CAJAS_POR_NIVEL * NIVELES_POR_RACK
-COMPS_POR_RACK = CAJAS_POR_RACK * CAPACIDAD_CAJA
 
-# ================= STREAMLIT =================
-st.set_page_config(page_title="AppArchivo", layout="wide")
-st.title("📦 AppArchivo – Organización de Archivo Físico")
-st.caption("Nivel 01 abajo (más pesado / más viejo)")
+CAJAS_POR_LADO_RACK = POSICIONES_POR_NIVEL * NIVELES_POR_RACK
+CAPACIDAD_LADO = CAJAS_POR_LADO_RACK * COMPROBANTES_POR_CAJA
 
-# ================= CARGA DE EXCEL =================
+# ================= CARGA =================
+
 archivo = st.file_uploader(
-    "Subí tu Excel (Col A: Número | Col B: Tipo PX / PU / PH)",
-    type=["xlsx", "xlsm"]
+    "Subí el Excel",
+    type=["xlsx", "xlsm", "csv"]
 )
 
-if archivo is None:
-    st.stop()
+if archivo:
 
-df = pd.read_excel(archivo)
-df = df.iloc[:, :2]
-df.columns = ["numero", "tipo"]
-df = df[df["tipo"].isin(["PX", "PU", "PH"])]
-
-# ================= ORGANIZACIÓN =================
-df = df.sort_values(by=["tipo", "numero"], ascending=[True, True])
-
-registros = []
-rack_actual = 1
-nivel_actual = 1
-caja_en_nivel = 1
-contador_caja = 0
-caja_id = 1
-
-for _, row in df.iterrows():
-    if contador_caja == CAPACIDAD_CAJA:
-        contador_caja = 0
-        caja_en_nivel += 1
-        caja_id += 1
-
-        if caja_en_nivel > CAJAS_POR_NIVEL:
-            caja_en_nivel = 1
-            nivel_actual += 1
-
-        if nivel_actual > NIVELES_POR_RACK:
-            nivel_actual = 1
-            rack_actual += 1
-
-    contador_caja += 1
-
-    registros.append({
-        "tipo": row["tipo"],
-        "numero": row["numero"],
-        "rack": f"Rack-{rack_actual}",
-        "nivel": nivel_actual,
-        "caja": f"Caja-{caja_id:02d}"
-    })
-
-df_org = pd.DataFrame(registros)
-
-# ================= RESÚMENES =================
-resumen = (
-    df_org
-    .groupby(["rack", "nivel", "caja"])
-    .size()
-    .reset_index(name="comprobantes")
-    .sort_values(["rack", "nivel", "caja"])
-)
-
-racks_necesarios = df_org["rack"].nunique()
-
-# ================= INDICADORES =================
-st.subheader("📊 Capacidad")
-
-c1, c2, c3 = st.columns(3)
-c1.metric("📄 Comprobantes", len(df_org))
-c2.metric("📦 Cajas", df_org["caja"].nunique())
-c3.metric("🏗️ Racks", racks_necesarios)
-
-ocupacion = int((len(df_org) / COMPS_POR_RACK) * 100)
-st.progress(min(ocupacion / 100, 1.0))
-
-if ocupacion >= 90:
-    st.error("🚨 Rack casi lleno – planificar expansión")
-elif ocupacion >= 70:
-    st.warning("⚠️ Rack al 70% – seguimiento recomendado")
-else:
-    st.success("✅ Capacidad OK")
-
-# ================= DISTRIBUCIÓN =================
-st.subheader("🧱 Distribución por Rack")
-
-for rack in resumen["rack"].unique():
-    st.markdown(f"### {rack}")
-    rack_df = resumen[resumen["rack"] == rack]
-
-    for nivel in sorted(rack_df["nivel"].unique()):
-        nivel_df = rack_df[rack_df["nivel"] == nivel]
-        cajas = [
-            f"{r['caja']} ({r['comprobantes']})"
-            for _, r in nivel_df.iterrows()
-        ]
-        st.write(f"Nivel {nivel}: " + " | ".join(cajas))
-
-# ================= BÚSQUEDA INDIVIDUAL =================
-st.subheader("🔍 Buscar comprobante")
-
-buscar = st.text_input("Número de comprobante")
-
-if buscar:
-    res = df_org[df_org["numero"].astype(str) == buscar]
-    if not res.empty:
-        r = res.iloc[0]
-        st.success(
-            f"📍 {r['tipo']} {r['numero']} → "
-            f"{r['rack']} · Nivel {r['nivel']} · {r['caja']}"
-        )
+    if archivo.name.endswith(".csv"):
+        df = pd.read_csv(archivo)
     else:
-        st.error("No encontrado")
+        df = pd.read_excel(archivo)
 
-# ================= BÚSQUEDA MÚLTIPLE =================
-st.subheader("🧾 Buscar lista de comprobantes (optimizado)")
+    df = df.iloc[:, :2]
+    df.columns = ["numero", "tipo"]
 
-lista_txt = st.text_area(
-    "Pegá números (uno por línea o separados por coma)",
-    height=120
-)
+    # Separar tipos
+    px = df[df["tipo"] == "PX"].sort_values("numero")
+    otros = df[df["tipo"].isin(["PU", "PH"])].sort_values("numero")
 
-if lista_txt:
-    lista = lista_txt.replace(",", "\n").splitlines()
-    lista = [x.strip() for x in lista if x.strip()]
+    # ================= FUNCIÓN UBICAR =================
 
-    encontrados = df_org[df_org["numero"].astype(str).isin(lista)]
+    def ubicar(df_tipo, lado):
 
-    if encontrados.empty:
-        st.error("No se encontraron comprobantes")
-    else:
-        encontrados = encontrados.sort_values(
-            by=["rack", "nivel", "caja"]
-        )
+        ubicaciones = []
 
-        st.success(f"Encontrados {len(encontrados)} comprobantes")
+        for i in range(len(df_tipo)):
 
-        st.dataframe(
-            encontrados[["tipo", "numero", "rack", "nivel", "caja"]],
-            use_container_width=True
-        )
+            caja_global = math.floor(i / COMPROBANTES_POR_CAJA)
 
-        st.subheader("🧱 Orden óptimo de recorrido")
+            rack = math.floor(
+                caja_global / CAJAS_POR_LADO_RACK
+            ) + 1
 
-        resumen_busqueda = (
-            encontrados
-            .groupby(["rack", "nivel", "caja"])
-            .size()
-            .reset_index(name="cantidad")
-            .sort_values(["rack", "nivel"])
-        )
+            dentro_rack = caja_global % CAJAS_POR_LADO_RACK
 
-        for _, r in resumen_busqueda.iterrows():
-            st.write(
-                f"📍 {r['rack']} · Nivel {r['nivel']} · "
-                f"{r['caja']} → {r['cantidad']} comprobantes"
-            )
+            nivel = math.floor(
+                dentro_rack / POSICIONES_POR_NIVEL
+            ) + 1
 
+            posicion = (
+                dentro_rack % POSICIONES_POR_NIVEL
+            ) + 1
 
+            ubicaciones.append([
+                rack,
+                nivel,
+                posicion,
+                lado,
+                caja_global + 1
+            ])
+
+        return ubicaciones
+
+    # Asignar ubicaciones
+    px[[
+        "rack","nivel","posicion","lado","caja"
+    ]] = ubicar(px, "Frente")
+
+    otros[[
+        "rack","nivel","posicion","lado","caja"
+    ]] = ubicar(otros, "Fondo")
+
+    # Unir
+    df_final = pd.concat([px, otros])
+    df_final = df_final.sort_values(
+        ["rack","nivel","posicion","lado"]
+    )
+
+    # ================= RESULTADOS =================
+
+    st.success("Layout generado")
+
+    st.dataframe(df_final.head(50))
+
+    # ================= MÉTRICAS =================
+
+    racks_px = math.ceil(len(px) / CAPACIDAD_LADO)
+    racks_otros = math.ceil(len(otros) / CAPACIDAD_LADO)
+
+    st.subheader("📊 Proyección")
+
+    col1, col2 = st.columns(2)
+
+    col1.metric(
+        "Racks PX",
+        racks_px
+    )
+
+    col2.metric(
+        "Racks PU/PH",
+        racks_otros
+    )
+
+    st.metric(
+        "Capacidad por Rack",
+        f"{CAPACIDAD_LADO*2:,} comprobantes"
+    )
+
+    # ================= DESCARGA =================
+
+    csv = df_final.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        "📥 Descargar layout",
+        csv,
+        "layout_archivo.csv",
+        "text/csv"
+    )
